@@ -22,6 +22,41 @@ sandbox, memory guard, and audit log are in the path for both. From
 the broker's perspective the JSON is identical regardless of source.
 That equivalence is the paper's thesis in code.
 
+## Architecture at a glance
+
+```mermaid
+flowchart LR
+    User([User<br/>request]) -->|task| Planner
+
+    subgraph Planner["Planner — treat as untrusted (§3.1)"]
+      direction TB
+      Scripted["ScriptedPlanner<br/>demos 01–07"]
+      LLM["LLMPlanner<br/>Claude Opus 4.7<br/>demos 08–09"]
+    end
+
+    Planner -->|"proposed call (JSON)"| Broker
+
+    subgraph Broker["ToolBroker.invoke — single chokepoint (§7.3)"]
+      direction TB
+      Steps["descriptor pin → schema → capability →<br/>IFC label join → policy → approval → egress"]
+    end
+
+    Broker -->|"allowed call"| Tools
+    Tools -.->|"result + provenance label"| Broker
+
+    subgraph Tools["Tools (§9)"]
+      direction TB
+      Tlist["github · email · sandbox · memory · web"]
+    end
+
+    Broker -.->|"every decision"| Audit[("Audit log<br/>§11.6")]
+    Planner -.->|"model turns"| Audit
+```
+
+Two planner modes funnel into the same broker. The broker is the only
+path to a side effect; tools never run except via `ToolBroker.invoke`.
+Every step lands in the audit log with full provenance.
+
 ## Quick start
 
 ```
@@ -71,6 +106,44 @@ tests/
 └── test_demos.py   runs every demo; non-zero exit on any failure
 ```
 
+## Inside `broker.invoke`
+
+The §7.3 enforcement chain is a fixed sequence of named checks. The
+first deny short-circuits; an allow runs the tool. Every outcome —
+including approvals — is recorded.
+
+```mermaid
+flowchart TD
+    Start(["planner proposes:<br/>tool, action, args, arg_labels"]) --> Reg{tool<br/>registered?}
+    Reg -- no --> R1["deny<br/>tool_not_registered"]
+    Reg -- yes --> Pin{descriptor<br/>hash matches pin?}
+    Pin -- no --> R2["deny<br/>descriptor_pin_mismatch §9.4"]
+    Pin -- yes --> Sch{args match<br/>tool schema?}
+    Sch -- no --> R3["deny<br/>schema_invalid"]
+    Sch -- yes --> Cap{capability covers<br/>(tool, action, args)? §4}
+    Cap -- no --> R4["deny<br/>capability_required"]
+    Cap -- yes --> Join["join arg_labels →<br/>args_label §5.1"]
+    Join --> Pol{PolicyEngine<br/>verdict §7.4}
+    Pol -- DENY --> R5["deny<br/>rule_name (e.g.<br/>no_private_to_public_github)"]
+    Pol -- APPROVAL_REQUIRED --> Hum{ApprovalQueue<br/>resolver: yes/no? §7.4}
+    Hum -- no --> R6["deny<br/>human_approval_denied"]
+    Hum -- yes --> Eg
+    Pol -- ALLOW --> Eg{egress secret<br/>scan finds matches? §7.6}
+    Eg -- yes --> R7["deny<br/>egress_secret_scan"]
+    Eg -- no --> Run["tool.run(args, ToolRunContext)"]
+    Run --> Done(["allow<br/>result + result_label"])
+
+    classDef deny fill:#fdd,stroke:#933,color:#311
+    classDef allow fill:#dfd,stroke:#393,color:#131
+    class R1,R2,R3,R4,R5,R6,R7 deny
+    class Done allow
+```
+
+Each diamond corresponds to one named control in `secagent/`. Every
+deny path writes to the audit log with the rule name, the joined
+provenance label, the sink destination if applicable, and a
+content-hash redaction of the args.
+
 ## Mapping to the paper's §11 checklist
 
 The [agent-capability-control checklist][checklist] enumerates the
@@ -110,7 +183,8 @@ or relax a check, the failing demo names the regression.
   capability-allowed. The broker still denies the public PR creation
   because the joined label on the `body` argument carries
   TENANT_PRIVATE from the private file. Per-tool allowlists are not
-  enough; flow is what matters (paper §3.4, §5).
+  enough; flow is what matters (paper §3.4, §5). See the trifecta
+  sequence diagram below.
 - **03 — Indirect injection via email.** Hijacked planner tries to
   forward inbox content to an attacker domain (denied by the recipient
   allowlist rule), and then to the user's own address (denied by
@@ -151,6 +225,50 @@ or relax a check, the failing demo names the regression.
   Strong assertions across both parts: no `allow` ever logged for
   `github.create_public_pr`, and the trifecta rule fires at least
   once on a model-proposed call in Part B.
+
+### The trifecta in time (demo 02 / demo 09 Part B)
+
+Both demos produce this broker trace; the difference is who supplied
+the `body` argument's joined label. Demo 02 (scripted) constructs it
+explicitly. Demo 09 Part B (Claude Opus 4.7 through the LLM bridge)
+gets the same join automatically from the conservative session-wide
+join in `LLMPlanner._invoke_through_broker`.
+
+```mermaid
+sequenceDiagram
+    autonumber
+    participant U as User
+    participant Pl as Planner
+    participant B as ToolBroker
+    participant Po as PolicyEngine
+    participant G as GitHub tools
+
+    U->>Pl: triage acme/public-ui#42
+    Pl->>B: github.read_issue(repo, 42)
+    B->>Po: decide (args_label = INTERNAL / USER_TRUSTED)
+    Po-->>B: allow (default_allow)
+    B->>G: read_issue
+    G-->>B: body, label = PUBLIC / UNTRUSTED_EXTERNAL
+
+    Pl->>B: github.read_private_file(repo, path)
+    B->>Po: decide
+    Po-->>B: allow (default_allow)
+    B->>G: read_private_file
+    G-->>B: file, label = TENANT_PRIVATE / UNTRUSTED_EXTERNAL
+
+    Pl->>B: github.create_public_pr(body = issue + file)
+    Note over B: join body's labels →<br/>TENANT_PRIVATE / UNTRUSTED_EXTERNAL
+    B->>Po: decide
+    Po-->>B: DENY (no_private_to_public_github)
+    B-->>Pl: outcome.decision = DENY
+    Pl-->>U: broker refused step 3
+```
+
+The two read calls are individually capability-allowed; the public-PR
+call is denied not because the *call* is forbidden but because the
+*flow* is — `body` carries TENANT_PRIVATE / UNTRUSTED_EXTERNAL and
+`github_public_write` is not a sink that label can reach. This is
+why per-tool allowlists are insufficient (paper §3.4).
 
 ## Demo shortcuts and what they don't prove
 

@@ -1,0 +1,6 @@
+# Reference implementation deps.
+#
+# The seven scripted demos (01-07) and unit tests run on stdlib only.
+# The LLM-backed demos (08, 09) need the Anthropic SDK and an
+# ANTHROPIC_API_KEY (loaded from .env at the repo root).
+anthropic>=0.97

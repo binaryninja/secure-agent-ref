@@ -1,0 +1,13 @@
+Public domain reference code (CC0 1.0 Universal).
+
+To the extent possible under law, the author has dedicated all copyright
+and related and neighboring rights to this software to the public domain
+worldwide. This software is distributed without any warranty.
+
+You should have received a copy of the CC0 Public Domain Dedication along
+with this software. If not, see <https://creativecommons.org/publicdomain/zero/1.0/>.
+
+Attribute the paper, not this repo:
+
+  "Sandboxing and Capability Control for Tool-Using Autonomous Agents"
+  https://richards.ai/papers/security-sandboxing-and-capability-control-for-tool-using-autonomous-agen

@@ -1,0 +1,60 @@
+{
+  "type": "tool",
+  "slug": "secure-agent-ref",
+  "title": "secure-agent-ref: Reference Implementation of Agent Capability Control",
+  "quick_answer": "secure-agent-ref is a small, runnable Python codebase that maps the controls described in the paper 'Sandboxing and Capability Control for Tool-Using Autonomous Agents' to readable modules and demo scripts. It implements a tool broker, capability minter, IFC labels, policy engine, sandbox profile, memory guard, and provenance audit log; nine demos exercise paper threat scenarios (lethal trifecta, indirect injection, tool descriptor rug pull, sandbox egress, memory poisoning, ambient authority), seven of them with a scripted worst-case planner and two driven by a real Claude Opus 4.7 model via the Anthropic SDK tool-use loop. Each demo asserts that the attacker scenario is denied by a deterministic control rather than by prompt-level guardrails. It targets engineers and security researchers who want to read the paper alongside working code; it is reference quality, not production quality.",
+  "target_queries": [
+    "agent capability control reference implementation",
+    "tool broker mcp gateway example",
+    "information flow control llm agent code",
+    "indirect prompt injection deny demo",
+    "object capability python example agents"
+  ],
+  "pillar": "security",
+  "authored_by": "jer-richards",
+  "published": "2026-05-01",
+  "updated": "2026-05-01",
+  "risk_level": "green",
+  "publication_status": "public",
+  "schema_type": "SoftwareSourceCode",
+  "repo_url": null,
+  "demo_url": null,
+  "license": "public-domain",
+  "language": "Python",
+  "status": "active",
+  "relations": {
+    "derived_from": [
+      "papers/security-sandboxing-and-capability-control-for-tool-using-autonomous-agen"
+    ],
+    "related": [
+      "learn/what-is-agent-capability-control",
+      "checklists/agent-capability-control",
+      "glossary/ambient-authority",
+      "briefs/agent-capability-control-executive-summary"
+    ]
+  },
+  "external_refs": [],
+  "internal_links_required": 2,
+  "faqs": [
+    {
+      "q": "Does this require an LLM or API key to run?",
+      "a": "Two of the nine demos do; seven do not. Demos 01–07 use a scripted planner — a hardcoded sequence representing what a hijacked or confused LLM might propose — so the controls can be exercised on stdlib alone. Demos 08 and 09 wire Claude Opus 4.7 in as the planner via secagent/llm_planner.py and the Anthropic SDK tool-use loop; they need ANTHROPIC_API_KEY in .env and `pip install -r requirements.txt`. The point of having both modes is that the broker, capability minter, IFC labels, and policy engine are the same in both — paper §13 taken literally, the LLM is untrusted and every proposed call funnels through ToolBroker.invoke regardless of who proposed it."
+    },
+    {
+      "q": "Is the sandbox safe enough for production?",
+      "a": "No. The CodeSandbox in this repo demonstrates the §6.6 profile (empty environment, ephemeral scratch directory, Linux rlimits, no inherited file descriptors) but it shares the host kernel via a subprocess. Production deployments should use Firecracker (§6.3) or gVisor (§6.2). The README is explicit so no one mistakes the demo for an isolation product."
+    },
+    {
+      "q": "How do the demos prove the attacks fail?",
+      "a": "Each demo's main() ends with assert statements that name the security claim — for example, 'pr.rule == \"no_private_to_public_github\"' for the lethal-trifecta demo. The audit log printed alongside each step shows which rule fired, the joined provenance label on the offending argument, and the sink destination, so a reader can map the deny back to the §5 IFC reasoning in the paper."
+    },
+    {
+      "q": "How does the LLM-backed planner stay inside the same controls as the scripted one?",
+      "a": "secagent/llm_planner.py is a thin bridge: it advertises the broker's tool catalog to Claude with wire-safe names (dotted broker names like 'github.read_issue' are translated to 'github__read_issue' for the Anthropic API), runs the SDK tool-use loop, and routes every tool_use block through ToolBroker.invoke before the model sees a result. Three details matter for §13 fidelity. (1) Untrusted text returned from a tool (issue bodies, fetched pages) is run through sanitize_for_planner — invisible Unicode and instruction-shaped phrasing are stripped before it reaches the model. (2) Conservative IFC join (§5.5): the planner accumulates session-wide labels and joins them into every subsequent argument label, so semantic laundering through model paraphrase still raises confidentiality and lowers integrity at the next call site. (3) Denials are returned to the model as tool_result blocks with is_error=True and the rule name, so the model can adapt without ever bypassing the broker. Demo 09 shows Opus 4.7 attempting a public-PR write after reading a private config and the broker firing 'no_private_to_public_github' on the joined label."
+    },
+    {
+      "q": "Which §11 checklist items are out of scope?",
+      "a": "Explicit purpose-bound declassification is stubbed (the demos only declassify implicitly via the egress scanner and recipient allowlist). Descriptor sanitization at the gateway layer (§9.4) is implemented as hashing and pinning only; the invisible-Unicode and instruction-phrasing strip lives in the LLM bridge (sanitize_for_planner) rather than in the descriptor pipeline a production gateway would run. AI-control monitor protocols (§12.7) are out of scope; capability control treats monitors as advisory anyway. The README's 'Scope and gaps' section names every gap and points at the paper section a production deployment should consult."
+    }
+  ]
+}

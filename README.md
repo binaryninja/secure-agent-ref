@@ -114,23 +114,23 @@ including approvals — is recorded.
 
 ```mermaid
 flowchart TD
-    Start(["planner proposes:<br/>tool, action, args, arg_labels"]) --> Reg{tool<br/>registered?}
+    Start(["planner proposes:<br/>tool, action, args, arg_labels"]) --> Reg{"tool<br/>registered?"}
     Reg -- no --> R1["deny<br/>tool_not_registered"]
-    Reg -- yes --> Pin{descriptor<br/>hash matches pin?}
+    Reg -- yes --> Pin{"descriptor<br/>hash matches pin?"}
     Pin -- no --> R2["deny<br/>descriptor_pin_mismatch §9.4"]
-    Pin -- yes --> Sch{args match<br/>tool schema?}
+    Pin -- yes --> Sch{"args match<br/>tool schema?"}
     Sch -- no --> R3["deny<br/>schema_invalid"]
-    Sch -- yes --> Cap{capability covers<br/>(tool, action, args)? §4}
+    Sch -- yes --> Cap{"capability covers<br/>tool, action, args? §4"}
     Cap -- no --> R4["deny<br/>capability_required"]
     Cap -- yes --> Join["join arg_labels →<br/>args_label §5.1"]
-    Join --> Pol{PolicyEngine<br/>verdict §7.4}
-    Pol -- DENY --> R5["deny<br/>rule_name (e.g.<br/>no_private_to_public_github)"]
-    Pol -- APPROVAL_REQUIRED --> Hum{ApprovalQueue<br/>resolver: yes/no? §7.4}
+    Join --> Pol{"PolicyEngine<br/>verdict §7.4"}
+    Pol -- DENY --> R5["deny<br/>rule_name e.g.<br/>no_private_to_public_github"]
+    Pol -- APPROVAL_REQUIRED --> Hum{"ApprovalQueue<br/>resolver: yes/no? §7.4"}
     Hum -- no --> R6["deny<br/>human_approval_denied"]
     Hum -- yes --> Eg
-    Pol -- ALLOW --> Eg{egress secret<br/>scan finds matches? §7.6}
+    Pol -- ALLOW --> Eg{"egress secret<br/>scan finds matches? §7.6"}
     Eg -- yes --> R7["deny<br/>egress_secret_scan"]
-    Eg -- no --> Run["tool.run(args, ToolRunContext)"]
+    Eg -- no --> Run["tool.run args, ToolRunContext"]
     Run --> Done(["allow<br/>result + result_label"])
 
     classDef deny fill:#fdd,stroke:#933,color:#311
